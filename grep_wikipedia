@@ -17,7 +17,7 @@ function help {
 }
 
 word=$1
-lgdefault='fr'
+lgdefault='en'
 lg=$lgdefault
 lgknown=1
 shift;
