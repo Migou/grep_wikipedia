@@ -1,0 +1,119 @@
+#!/bin/bash
+function help {
+	 case $lg in 
+	 fr)
+	        echo usage :
+		echo "grep_wikipedia [-l lg] [-h|mot]"
+		echo "rapporte la definition courte (une ligne) de wikipedia pour le mot <mot>"
+                echo "<lg> : la langue dans laquelle Wikipedia doit être consultée. Par défaut \"$lgdefault\"."
+                ;;
+         *)
+	        echo usage :
+       		echo "grep_wikipedia [-l lg] [-h|word]"
+       		echo "finds the one-line wikipedia definition for word <word>"
+       		echo "<lg> : the language version of Wikipedia. By default \"$lgdefault\"." 
+		;;
+	esac
+}
+
+word=$1
+lgdefault='fr'
+lg=$lgdefault
+lgknown=1
+shift;
+
+if [ "$word" = -l ]
+then 
+	option=$word
+	lg=$1; 
+	word=$2
+	shift; shift;
+fi
+
+if [ "$word" = -h ]
+then 
+     help
+     exit
+fi
+
+case $lg in 
+fr ) tobe="est\\|sont\\|était\\|étaient\\|a été\\|ont été\\|fut\\|furent\\|désigne"  ;
+ torefer="se référer\\|se réfère\\|fait référence\\|peut désigner"  ;;
+en ) tobe="is\\|are\\|was\\|were\\|have been"  ;
+ torefer="refer to\\|refers to"  ;;
+de ) tobe="ist\\|sind\\|war\\|waren\\|wurden\\|wurde\\|wird\\|werden"  ;
+ torefer="bezeichnet"  ;;
+es ) tobe="es\\|son\\|fue\\|fueron\\|ha sido\\|han sido"
+     torefer="referirse\\|refiere\\|hace referencia\\|hacer referencia"  ;;
+* ) lgknown=0
+esac
+
+# pas de \ pour la version grep
+greptobe=`echo "$tobe" | sed 's/\\\\//g'`
+greptorefer=`echo "$torefer" | sed 's/\\\\//g'`
+
+#echo "word=$word; lg=$lg: tobe=$tobe torefer=$torefer" 1>&2
+
+if which lynx > /dev/null; 
+then echo ok > /dev/null; 
+else echo "lynx missing, please install it" ; exit; 
+fi #1>&2
+
+site=http://$lg.wikipedia.org/wiki/$word
+#echo "Retrieval of \`\`$site''" 1>&2
+lynx -dump "$site" > /tmp/x
+cat /tmp/x | sed "s|^ *$|<PARAGRAPH>\n|" | tr '\n' ' ' | sed "s|\. |<POINT>\n|g" | sed "s|<PARAGRAPH>|<PARAGRAPH>\n|g" | grep "[a-z][a-z]* [a-z][a-z]* [a-z][a-z ]*" | sed 's|\^\[[0-9]*\]||g' | sed 's|\[[0-9]*\]||g' | sed "s|  *| |g" | sed "s|<POINT>|.|g" | sed "s|<PARAGRAPH>|\n|" > /tmp/x2
+
+cat /tmp/x2 | sed "s/([^)]*)//g" | sed "s/$word.*,[^,.]*, *\($tobe\)/$word \1/g" | sed "s/$word.*- *[^-]*- *\($tobe\)/$word \1/g" | sed "s/  */ /g" > /tmp/x3
+
+if [[ "$?" > 0 ]]
+then exit 3
+else
+	if [ "$lgknown" = 1 ]
+	then
+		# recherche d'une expression "$word $tobe", resserrée après suppression des incises
+		grep -i "$word" /tmp/x3 | egrep "$word  *($greptobe)" | head -n 1  >/tmp/x4
+		if grep . /tmp/x4 > /dev/null
+		then		
+			head -n 1 /tmp/x4 
+			exit 0
+		fi
+
+		# recherche d'une expression "tobe", 5 premières lignes
+		grep -i "$word" /tmp/x2 | egrep " ($greptobe) " | head -n 5  >/tmp/y
+		if grep . /tmp/y > /dev/null
+		then		
+			head -n 1 /tmp/y 
+			exit 0
+		fi
+
+		# recherche d'une expression "se refere à", 5 premières lignes
+			head -n 5 /tmp/x2 | grep -A 2 "$word" | egrep -A 2 " ($torefer) "  >/tmp/yrefer
+			if grep . /tmp/yrefer > /dev/null
+			then
+				head -n 3 /tmp/yrefer | tr "\n" " " | sed 's|: *\* *| |g' | sed 's|   *| |' | sed 's|$|\n|'
+			exit 0
+			fi
+
+		# recherche d'une expression "tobe"
+		cat /tmp/x2 | grep -i "$word" | egrep " ($greptobe) "  >/tmp/y
+		    if grep . /tmp/y > /dev/null
+		then
+		    head -n 1 /tmp/y 
+		    exit 0
+		fi
+
+		# recherche d'une expression "se refere à"
+		cat /tmp/x2 | grep -A 2 "$word" | egrep -A 2 " ($torefer) "  >/tmp/yrefer
+		if grep . /tmp/yrefer > /dev/null
+		then
+			head -n 3 /tmp/yrefer | tr "\n" " " | sed 's|: *\* *| |g' | sed 's|   *| |' | sed 's|$|\n|'
+			exit 0
+		fi
+
+	else # if lg not known
+		cat /tmp/x2 | egrep -i " $word.?.? " | head -n 1
+	fi # end if lgknown
+
+	exit 2	 # nothing found
+fi
